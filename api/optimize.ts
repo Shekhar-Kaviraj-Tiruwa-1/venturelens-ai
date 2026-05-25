@@ -1,92 +1,87 @@
-import Anthropic from "@anthropic-ai/sdk";
-
 export const config = { runtime: "edge" };
 
-// ── Prompt technique templates ─────────────────────────────────────────────
+// ── Technique prompts ──────────────────────────────────────────────────────
+// Each technique produces a Business Idea Brief — a clean description of the
+// founder's idea suitable for validation, not a generic AI prompt or step list.
 
 type TechniqueId = "auto" | "zero_shot" | "few_shot" | "system_user" | "context_efficient" | "chain_of_thought";
 
-const CLASSIFIER_PROMPT = `You are a prompt engineering classifier. Analyze the user's input and determine which single technique will produce the best result.
-
-Techniques:
-- zero_shot: Best for clear, direct tasks that need no examples (summaries, explanations, simple instructions)
-- few_shot: Best for tasks where pattern/format must be consistent (formatting, classification, transformation)
-- system_user: Best for tasks requiring a specific persona or role-play (customer service, expert advisor, character)
-- context_efficient: Best for simple or repetitive tasks where brevity matters (quick lookups, short answers)
-- chain_of_thought: Best for complex reasoning, math, multi-step problems, or analysis
-
-Return ONLY one word — exactly one of: zero_shot, few_shot, system_user, context_efficient, chain_of_thought
-
-No explanation. No punctuation. Just the technique name.`;
+const BRIEF_FORMAT = `Idea: [one sentence — what the product or service is]
+Target Customer: [specific persona with a real pain]
+Problem: [the pain being solved and why it matters]
+Solution: [how the product or service solves it]
+Value Proposition: [why this is better than existing alternatives]
+Key Assumptions: [what must be true for this to succeed]`;
 
 const TECHNIQUE_PROMPTS: Record<Exclude<TechniqueId, "auto">, string> = {
-  zero_shot: `You are an expert prompt engineer. Transform the user's raw input into a structured zero-shot prompt.
+  zero_shot: `You are a business analyst who helps founders clarify and structure their ideas.
 
-A zero-shot prompt has:
-- A clear ROLE for the AI
-- A specific TASK statement
-- Explicit CONSTRAINTS (tone, length, style, audience)
-- A defined OUTPUT FORMAT
+Transform the founder's raw input into a clean Business Idea Brief. The brief describes the idea itself — it is not a prompt for another AI, and it contains no step-by-step instructions.
 
-Rules:
-- Return ONLY the optimized prompt text
-- No explanations, no code blocks, no commentary
-- Make it ready to paste directly into any AI chat`,
-
-  few_shot: `You are an expert prompt engineer. Transform the user's raw input into a few-shot prompt that includes examples.
-
-A few-shot prompt has:
-- A clear task description
-- 2-3 concrete Input → Output examples that demonstrate the exact pattern
-- A final prompt line for the actual task
+Output format:
+${BRIEF_FORMAT}
 
 Rules:
-- Make the examples realistic and directly relevant to the task
-- The examples should clearly show the format/style expected
-- Return ONLY the optimized prompt text
-- No explanations, no code blocks, no commentary`,
+- Write the brief as a clear business description, not as instructions
+- Be specific and concrete — avoid vague generalities
+- Do not use "Step 1", "Step 2", or similar structures
+- Do not write "Now provide..." or address another AI
+- Return ONLY the brief — no preamble, no commentary`,
 
-  system_user: `You are an expert prompt engineer. Transform the user's raw input into a prompt with clearly separated SYSTEM and USER sections.
+  few_shot: `You are a business analyst who helps founders clarify their ideas into structured briefs.
 
-Format your output exactly like this:
+Transform the founder's raw input into a clean Business Idea Brief using the pattern below.
 
-SYSTEM MESSAGE:
-[Define the AI's persona, expertise, tone, and behavioral rules here]
+Example input:
+"An app that uses AI to match people who want to learn guitar with local teachers based on their schedule and music taste."
 
-USER MESSAGE:
-[Define the specific task, requirements, and expected output here]
+Example output:
+Idea: A mobile app that matches aspiring guitar learners with local instructors based on availability and musical style preferences.
+Target Customer: Adults aged 25–40 who want to learn guitar but struggle to find a teacher who fits their schedule and taste.
+Problem: Most guitar teachers are discovered through word-of-mouth or generic classifieds, with no way to filter by style, availability, or fit.
+Solution: AI-powered matching that considers learning goals, preferred genres, weekly availability, and budget to surface the right local teachers.
+Value Proposition: Faster, better-fit matches than generic music teacher directories, with less friction than reaching out cold.
+Key Assumptions: Enough local teachers are willing to list on the platform; learners are willing to pay a small matching fee or subscription.
+
+Now apply this pattern to the founder's idea:
+
+${BRIEF_FORMAT}
+
+Return ONLY the brief — no preamble, no commentary.`,
+
+  system_user: `You are a senior business analyst. Your job is to listen to a founder's rough idea and restate it as a clear, structured Business Idea Brief.
+
+The brief describes the business idea itself — clearly and concisely. It is not a set of instructions for another AI. It is a document a startup advisor would read to quickly understand the idea.
+
+Output format:
+${BRIEF_FORMAT}
+
+Return ONLY the brief. No preamble, no step lists, no instructions to other systems.`,
+
+  context_efficient: `You are a business analyst. Extract the core of the founder's idea and compress it into a tight Business Idea Brief. Keep every field to 1–2 sentences maximum.
+
+Output format:
+${BRIEF_FORMAT}
 
 Rules:
-- The SYSTEM MESSAGE sets who the AI is and how it behaves
-- The USER MESSAGE is what the user is actually asking
-- Return ONLY these two sections, clearly labeled
-- No extra commentary or explanation`,
+- Cut filler, hedge words, and repetition
+- Be specific and concrete
+- No step lists, no instructions, no preamble
+- Return ONLY the brief`,
 
-  context_efficient: `You are an expert prompt engineer specializing in token efficiency. Transform the user's raw input into a compressed, high-signal prompt.
+  chain_of_thought: `You are a business analyst. A founder has shared a rough idea. Think through it carefully — who the real customer is, what pain they have, whether the solution actually addresses it, and what must be true for it to work.
 
-Compression rules:
-- Remove filler words, pleasantries, redundancy
-- Use shorthand: "w/" for with, "→" for produces/leads to, "&" for and
-- Use bullets and colons instead of full sentences where possible
-- Pack maximum meaning into minimum tokens
-- Keep all critical constraints — just say them concisely
+Do not show your thinking. Do not write reasoning steps in your output.
 
-Return ONLY the compressed prompt. No explanations. No code blocks.`,
+Output only a clean Business Idea Brief:
+${BRIEF_FORMAT}
 
-  chain_of_thought: `You are an expert prompt engineer. Transform the user's raw input into a chain-of-thought prompt that guides step-by-step reasoning.
-
-A chain-of-thought prompt:
-- Instructs the AI to think through the problem step by step
-- Breaks the task into numbered reasoning steps
-- Asks the AI to show its work before giving the final answer
-- Ends with a clear instruction for the final output
-
-Format:
-- Use "Step 1:", "Step 2:", etc. to structure the reasoning
-- The last step should always be the final answer/output
-
-Return ONLY the optimized prompt text. No explanations, no code blocks.`,
+Return ONLY the brief — no visible reasoning, no step lists, no commentary.`,
 };
+
+const VALID_TECHNIQUES: Exclude<TechniqueId, "auto">[] = [
+  "zero_shot", "few_shot", "system_user", "context_efficient", "chain_of_thought",
+];
 
 // ── Handler ────────────────────────────────────────────────────────────────
 
@@ -120,61 +115,66 @@ export default async function handler(req: Request): Promise<Response> {
       );
     }
 
-    const apiKey = process.env.ANTHROPIC_API_KEY;
-    if (!apiKey || apiKey === "YOUR_KEY_HERE") {
+    const apiKey = process.env.OPENROUTER_API_KEY;
+    if (!apiKey) {
       return new Response(
-        JSON.stringify({
-          success: false,
-          error: "ANTHROPIC_API_KEY not configured.",
-        }),
+        JSON.stringify({ success: false, error: "OPENROUTER_API_KEY not configured." }),
         { status: 500, headers: { "Content-Type": "application/json" } }
       );
     }
 
-    const anthropic = new Anthropic({ apiKey });
+    const model =
+      process.env.OPENROUTER_OPTIMIZER_MODEL ||
+      process.env.OPENROUTER_MODEL ||
+      "anthropic/claude-haiku-4-5";
 
-    // ── Resolve technique ──────────────────────────────────────────────────
-    let resolvedTechnique: Exclude<TechniqueId, "auto">;
-
-    if (technique === "auto") {
-      // Classifier call: ask Claude which technique fits best
-      const classifierMsg = await anthropic.messages.create({
-        model: "claude-haiku-4-5-20251001",
-        max_tokens: 20,
-        system: CLASSIFIER_PROMPT,
-        messages: [{ role: "user", content: text }],
-      });
-
-      const raw = classifierMsg.content[0]?.type === "text"
-        ? classifierMsg.content[0].text.trim().toLowerCase()
+    // auto defaults to zero_shot — no extra classifier call needed
+    const resolvedTechnique: Exclude<TechniqueId, "auto"> =
+      VALID_TECHNIQUES.includes(technique as Exclude<TechniqueId, "auto">)
+        ? (technique as Exclude<TechniqueId, "auto">)
         : "zero_shot";
-
-      const validTechniques: Exclude<TechniqueId, "auto">[] = [
-        "zero_shot", "few_shot", "system_user", "context_efficient", "chain_of_thought",
-      ];
-
-      resolvedTechnique = validTechniques.includes(raw as any)
-        ? (raw as Exclude<TechniqueId, "auto">)
-        : "zero_shot";
-    } else {
-      resolvedTechnique = technique as Exclude<TechniqueId, "auto">;
-    }
 
     const systemPrompt = TECHNIQUE_PROMPTS[resolvedTechnique];
 
-    // ── Main optimization call ─────────────────────────────────────────────
-    const message = await anthropic.messages.create({
-      model: "claude-sonnet-4-6",
-      max_tokens: 1024,
-      system: systemPrompt,
-      messages: [{ role: "user", content: `Optimize this request:\n\n"${text}"` }],
+    const orResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://venturelens.ai",
+        "X-Title": "VentureLens AI",
+      },
+      body: JSON.stringify({
+        model,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: `Here is the founder's raw idea:\n\n"${text}"` },
+        ],
+        max_tokens: 1024,
+        temperature: 0.5,
+      }),
     });
 
-    const optimizedText =
-      message.content[0]?.type === "text" ? message.content[0].text.trim() : text;
+    if (!orResponse.ok) {
+      const errText = await orResponse.text();
+      console.error("OpenRouter optimize error:", errText);
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: `AI service error (${orResponse.status}). Check your OPENROUTER_API_KEY.`,
+        }),
+        { status: orResponse.status, headers: { "Content-Type": "application/json" } }
+      );
+    }
 
-    const inputTokens = message.usage?.input_tokens || 0;
-    const outputTokens = message.usage?.output_tokens || 0;
+    const orData = await orResponse.json() as {
+      choices?: { message?: { content?: string } }[];
+      usage?: { prompt_tokens?: number; completion_tokens?: number };
+    };
+
+    const optimizedText = orData.choices?.[0]?.message?.content?.trim() ?? text;
+    const inputTokens = orData.usage?.prompt_tokens || 0;
+    const outputTokens = orData.usage?.completion_tokens || 0;
 
     return new Response(
       JSON.stringify({
@@ -188,34 +188,10 @@ export default async function handler(req: Request): Promise<Response> {
       }),
       { status: 200, headers: { "Content-Type": "application/json" } }
     );
-  } catch (error: any) {
-    if (error.status === 401) {
-      return new Response(
-        JSON.stringify({
-          success: false,
-          error: "Invalid Anthropic API key.",
-          code: "INVALID_API_KEY",
-        }),
-        { status: 401, headers: { "Content-Type": "application/json" } }
-      );
-    }
-
-    if (error.status === 429) {
-      return new Response(
-        JSON.stringify({
-          success: false,
-          error: "Rate limit exceeded. Please try again shortly.",
-          code: "RATE_LIMITED",
-        }),
-        { status: 429, headers: { "Content-Type": "application/json" } }
-      );
-    }
-
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Failed to optimize prompt";
     return new Response(
-      JSON.stringify({
-        success: false,
-        error: error.message || "Failed to optimize prompt",
-      }),
+      JSON.stringify({ success: false, error: message }),
       { status: 500, headers: { "Content-Type": "application/json" } }
     );
   }

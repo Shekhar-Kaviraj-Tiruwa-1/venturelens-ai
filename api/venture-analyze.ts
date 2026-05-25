@@ -2,7 +2,9 @@ export const config = { runtime: "edge" };
 
 const VENTURE_SYSTEM_PROMPT = `You are a seasoned business analyst and startup advisor. Give founders an honest, structured validation of their business idea. You are NOT a cheerleader — surface real risks, hard questions, and honest scores.
 
-Return ONLY a valid JSON object. No text before or after. No markdown fences. Pure JSON matching this exact schema:
+CRITICAL OUTPUT RULE: Your response MUST be a single valid JSON object. It must start with { and end with }. No text before or after. No markdown fences. No code blocks. Pure raw JSON only.
+
+Return ONLY a valid JSON object matching this exact schema:
 
 {
   "cleanedIdea": "one clear sentence restating the idea without jargon",
@@ -143,10 +145,25 @@ export default async function handler(req: Request): Promise<Response> {
     try {
       report = JSON.parse(rawContent);
     } catch {
-      return new Response(
-        JSON.stringify({ success: false, error: 'AI returned an unstructured response. Please try again.' }),
-        { status: 422, headers: { 'Content-Type': 'application/json' } }
-      );
+      // Model sometimes wraps JSON in markdown fences or adds surrounding text — extract it
+      const match = rawContent.match(/\{[\s\S]*\}/);
+      if (match) {
+        try {
+          report = JSON.parse(match[0]);
+        } catch {
+          console.error('JSON extraction failed after match:', rawContent.slice(0, 200));
+          return new Response(
+            JSON.stringify({ success: false, error: 'AI returned an unstructured response. Please try again.' }),
+            { status: 422, headers: { 'Content-Type': 'application/json' } }
+          );
+        }
+      } else {
+        console.error('No JSON object found in response:', rawContent.slice(0, 200));
+        return new Response(
+          JSON.stringify({ success: false, error: 'AI returned an unstructured response. Please try again.' }),
+          { status: 422, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
     }
 
     return new Response(

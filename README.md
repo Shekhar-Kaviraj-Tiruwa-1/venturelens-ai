@@ -23,7 +23,7 @@ VentureLens AI is a voice-first hackathon project that combines prompt engineeri
 | Layer | Technology |
 |---|---|
 | Frontend | React 19, Vite, TypeScript, Tailwind CSS, shadcn/ui |
-| Prompt optimization | Anthropic Claude Haiku (classifier) + Claude Sonnet (optimizer) |
+| Prompt optimization | OpenRouter (Claude Haiku default, configurable via OPENROUTER_OPTIMIZER_MODEL) |
 | Business validation | OpenRouter → Claude Sonnet |
 | Voice fallback | Deepgram nova-2 |
 | Production hosting | Vercel (Edge functions) |
@@ -52,10 +52,10 @@ cp .env.example .env
 ```
 
 ```
-OPENROUTER_API_KEY=your_openrouter_key_here      # required — for validation reports
-ANTHROPIC_API_KEY=your_anthropic_key_here        # required — for prompt optimization
+OPENROUTER_API_KEY=your_openrouter_key_here      # required — for both optimization and validation
 DEEPGRAM_API_KEY=your_deepgram_key_here          # optional — only needed for voice fallback
 OPENROUTER_MODEL=                                # optional — defaults to anthropic/claude-sonnet-4-5
+OPENROUTER_OPTIMIZER_MODEL=                      # optional — overrides model for /api/optimize only
 ```
 
 ### 3. Start the dev server
@@ -80,8 +80,8 @@ Open `http://localhost:5174`.
 2. Import the repo in Vercel
 3. Add environment variables in the Vercel dashboard:
    - `OPENROUTER_API_KEY`
-   - `ANTHROPIC_API_KEY`
    - `DEEPGRAM_API_KEY` (optional)
+   - `OPENROUTER_OPTIMIZER_MODEL` (optional)
 4. Deploy — Vercel auto-detects Vite and the `api/` serverless functions
 
 ---
@@ -111,7 +111,7 @@ venturelens-ai/
 
 | Variable | Required | Description |
 |---|---|---|
-| `OPENROUTER_API_KEY` | Yes | OpenRouter API key for validation reports |
-| `ANTHROPIC_API_KEY` | Yes | Anthropic API key for prompt optimization |
+| `OPENROUTER_API_KEY` | Yes | OpenRouter API key for both optimization and validation |
 | `DEEPGRAM_API_KEY` | Optional | Deepgram API key for voice transcription fallback |
-| `OPENROUTER_MODEL` | Optional | Override the OpenRouter model (default: `anthropic/claude-sonnet-4-5`) |
+| `OPENROUTER_MODEL` | Optional | Model for validation reports (default: `anthropic/claude-sonnet-4-5`) |
+| `OPENROUTER_OPTIMIZER_MODEL` | Optional | Model for prompt optimization; falls back to `OPENROUTER_MODEL` |

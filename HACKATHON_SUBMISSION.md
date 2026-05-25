@@ -38,7 +38,7 @@ Business idea validation / Startup tooling
 |---|---|
 | Frontend | React 19 + Vite + TypeScript + Tailwind CSS |
 | Voice input | Web Speech API (Chrome primary), Deepgram nova-2 (fallback) |
-| Prompt optimization | Anthropic Claude Haiku (technique classifier) + Claude Sonnet (optimizer) |
+| Prompt optimization | OpenRouter (configurable model, defaults to Claude Haiku) |
 | Business validation | OpenRouter → Claude Sonnet via structured JSON output |
 | Hosting | Vercel (Edge serverless functions) |
 
