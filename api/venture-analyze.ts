@@ -2,7 +2,12 @@ export const config = { runtime: "edge" };
 
 const VENTURE_SYSTEM_PROMPT = `You are a seasoned business analyst and startup advisor. Give founders an honest, structured validation of their business idea. You are NOT a cheerleader — surface real risks, hard questions, and honest scores.
 
-CRITICAL OUTPUT RULE: Your response MUST be a single valid JSON object. It must start with { and end with }. No text before or after. No markdown fences. No code blocks. Pure raw JSON only.
+CRITICAL OUTPUT RULE: Your response MUST be a single valid JSON object.
+- Begin immediately with { — no preamble, no title, no explanation
+- End with } — no trailing text or summary
+- Do NOT use markdown code fences (never write \`\`\` or \`\`\`json)
+- Do NOT add comments or annotations inside the JSON
+- Your entire response must pass JSON.parse() with zero preprocessing
 
 Return ONLY a valid JSON object matching this exact schema:
 
@@ -61,6 +66,68 @@ function getReportTypeInstruction(reportType: string): string {
   return map[reportType] || '';
 }
 
+// Attempt to extract a parseable JSON object from a model response that may
+// include markdown fences, preamble text, or other wrapping.
+function extractReport(raw: string): unknown | null {
+  // 1. Direct parse — succeeds when the model behaves correctly
+  try { return JSON.parse(raw); } catch {}
+
+  // 2. Strip markdown fences and retry
+  const stripped = raw
+    .replace(/^```(?:json)?\s*\n?/m, '')
+    .replace(/\n?\s*```\s*$/m, '')
+    .trim();
+  try { return JSON.parse(stripped); } catch {}
+
+  // 3. Extract the first {...} block from whatever remains
+  const match = stripped.match(/\{[\s\S]*\}/);
+  if (match) {
+    try { return JSON.parse(match[0]); } catch {}
+  }
+
+  return null;
+}
+
+// Returned when all parse attempts fail so the UI still renders a usable report.
+function buildFallbackReport(idea: string) {
+  const brief = idea.length > 150 ? idea.slice(0, 147) + '...' : idea;
+  return {
+    cleanedIdea: brief,
+    problemStatement: 'The validation analysis could not be completed. Please click Generate again to retry.',
+    targetCustomer: 'Could not be determined — please regenerate the report.',
+    valueProposition: 'Could not be determined — please regenerate the report.',
+    keyAssumptions: ['Please regenerate the report for accurate assumptions.'],
+    mainRisks: [
+      { risk: 'Report generation encountered an issue — please retry.', severity: 'High' as const },
+      { risk: 'Consider shortening or simplifying your idea description.', severity: 'Medium' as const },
+      { risk: 'If this persists, try a different report type or technique.', severity: 'Low' as const },
+    ],
+    mvpFeatures: ['Regenerate the report to get MVP feature recommendations.'],
+    validationQuestions: [
+      'Please regenerate the report for validation questions.',
+      'Consider simplifying your idea description.',
+      'Try a different report type.',
+      'Ensure your OpenRouter API key has sufficient credits.',
+      'Try again in a few moments if the issue persists.',
+    ],
+    customerObjections: [
+      'Report generation failed — please try again.',
+      'Try with a shorter, more focused idea description.',
+      'Switch to a different technique and regenerate.',
+    ],
+    scores: {
+      desirability: { score: 5, rationale: 'Could not be scored — please regenerate.' },
+      feasibility:  { score: 5, rationale: 'Could not be scored — please regenerate.' },
+      viability:    { score: 5, rationale: 'Could not be scored — please regenerate.' },
+      novelty:      { score: 5, rationale: 'Could not be scored — please regenerate.' },
+    },
+    recommendation: 'Validate More' as const,
+    recommendationReason: 'This is a placeholder result — the AI response could not be parsed. Please click Generate again to get an accurate validation report.',
+  };
+}
+
+// ── Handler ────────────────────────────────────────────────────────────────
+
 export default async function handler(req: Request): Promise<Response> {
   if (req.method !== 'POST') {
     return new Response(
@@ -116,7 +183,7 @@ export default async function handler(req: Request): Promise<Response> {
             { role: 'system', content: systemPrompt },
             { role: 'user', content: `Analyze this business idea:\n\n${trimmedIdea}` },
           ],
-          max_tokens: 1200,
+          max_tokens: 1500,
           temperature: 0.5,
         }),
         signal: controller.signal,
@@ -156,34 +223,14 @@ export default async function handler(req: Request): Promise<Response> {
 
     if (!rawContent) {
       return new Response(
-        JSON.stringify({ success: false, error: 'Empty response from AI service' }),
+        JSON.stringify({ success: false, error: 'Empty response from AI service.' }),
         { status: 500, headers: { 'Content-Type': 'application/json' } }
       );
     }
 
-    let report: unknown;
-    try {
-      report = JSON.parse(rawContent);
-    } catch {
-      // Model sometimes wraps JSON in markdown fences or adds surrounding text — extract it
-      const match = rawContent.match(/\{[\s\S]*\}/);
-      if (match) {
-        try {
-          report = JSON.parse(match[0]);
-        } catch {
-          console.error('JSON extraction failed after match:', rawContent.slice(0, 200));
-          return new Response(
-            JSON.stringify({ success: false, error: 'AI returned an unstructured response. Please try again.' }),
-            { status: 422, headers: { 'Content-Type': 'application/json' } }
-          );
-        }
-      } else {
-        console.error('No JSON object found in response:', rawContent.slice(0, 200));
-        return new Response(
-          JSON.stringify({ success: false, error: 'AI returned an unstructured response. Please try again.' }),
-          { status: 422, headers: { 'Content-Type': 'application/json' } }
-        );
-      }
+    const report = extractReport(rawContent) ?? buildFallbackReport(trimmedIdea);
+    if (!extractReport(rawContent)) {
+      console.error('All JSON parse attempts failed — returning fallback report. Raw prefix:', rawContent.slice(0, 200));
     }
 
     return new Response(
