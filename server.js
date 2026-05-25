@@ -293,7 +293,7 @@ app.post('/api/venture-analyze', async (req, res) => {
     return res.status(500).json({ success: false, error: 'OPENROUTER_API_KEY not configured on server' });
   }
 
-  const model = process.env.OPENROUTER_MODEL || 'anthropic/claude-sonnet-4-5';
+  const model = process.env.OPENROUTER_MODEL || 'anthropic/claude-haiku-4-5';
   const trimmedIdea = idea.trim().slice(0, 1500);
 
   const reportTypeInstruction = getReportTypeInstruction(reportType);
@@ -301,26 +301,43 @@ app.post('/api/venture-analyze', async (req, res) => {
     ? `${VENTURE_SYSTEM_PROMPT}\n\nADDITIONAL FOCUS: ${reportTypeInstruction}`
     : VENTURE_SYSTEM_PROMPT;
 
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 25000);
+
   try {
-    const orResponse = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-        'HTTP-Referer': 'https://venturelens.ai',
-        'X-Title': 'VentureLens AI',
-      },
-      body: JSON.stringify({
-        model,
-        response_format: { type: 'json_object' },
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: `Analyze this business idea:\n\n${trimmedIdea}` },
-        ],
-        max_tokens: 2000,
-        temperature: 0.7,
-      }),
-    });
+    let orResponse;
+    try {
+      orResponse = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+          'HTTP-Referer': 'https://venturelens.ai',
+          'X-Title': 'VentureLens AI',
+        },
+        body: JSON.stringify({
+          model,
+          response_format: { type: 'json_object' },
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: `Analyze this business idea:\n\n${trimmedIdea}` },
+          ],
+          max_tokens: 1200,
+          temperature: 0.5,
+        }),
+        signal: controller.signal,
+      });
+    } catch (fetchError) {
+      clearTimeout(timeoutId);
+      const isTimeout = fetchError instanceof Error && fetchError.name === 'AbortError';
+      return res.status(503).json({
+        success: false,
+        error: isTimeout
+          ? 'Validation timed out. Try a shorter idea or a faster model.'
+          : 'Could not reach AI service. Please try again.',
+      });
+    }
+    clearTimeout(timeoutId);
 
     if (!orResponse.ok) {
       const errText = await orResponse.text();
